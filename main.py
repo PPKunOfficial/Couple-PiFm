@@ -7,28 +7,37 @@ import argparse
 import logging
 
 # 设置日志的格式和级别
-logging.basicConfig(format="%(asctime)s %(levelname)s %(message)s", level=logging.INFO)
+logging.basicConfig(
+    format="%(asctime)s %(levelname)s %(message)s", level=logging.INFO)
 
 # 使用argparse模块来处理命令行参数
-parser = argparse.ArgumentParser(description="A program to play wav files using fm transmitter")
-parser.add_argument("-m", "--music", type=str, default="wav_files", help="The folder path of wav files")
-parser.add_argument("-c", "--count", type=str, default="count.dat", help="The count file path")
-parser.add_argument("-f", "--folder", type=str, default=os.getcwd(), help="The work folder")
-parser.add_argument("-t", "--transmitter", type=str, default="fmt", help="The fm transmitter path")
-parser.add_argument("-q", "--frequency", type=float, default=88.7, help="The frequency of fm transmission")
+parser = argparse.ArgumentParser(
+    description="A program to play wav files using fm transmitter")
+parser.add_argument("-m", "--music", type=str,
+                    default="wav_files", help="The folder path of wav files")
+parser.add_argument("-c", "--count", type=str,
+                    default="count.dat", help="The count file path")
+parser.add_argument("-f", "--folder", type=str,
+                    default=os.getcwd(), help="The work folder")
+parser.add_argument("-t", "--transmitter", type=str,
+                    default="fmt", help="The fm transmitter path")
+parser.add_argument("-q", "--frequency", type=float,
+                    default=88.7, help="The frequency of fm transmission")
 args = parser.parse_args()
 
 # 使用变量来存储参数的值
 folder_path = f"{args.folder}/{args.music}"
 count_file = f"{args.folder}/{args.count}"
 fm_tra = f"{args.folder}/{args.transmitter}"
-freq = f"{args.folder}/{args.frequency}"
+freq = args.frequency
 
 count = 0
 subp = None
 
 GPIO.cleanup()
 # 获取指定目录里的所有文件(包括子目录)
+
+
 def scan_files(directory, extension=None):
     # 初始化一个空列表，用于存储文件路径
     file_list = []
@@ -49,61 +58,109 @@ def scan_files(directory, extension=None):
 
     return file_list
 
+
 def bef_exit():
-    global subp
-    subp.send_signal(15)
+    subprocess.run(["sudo", "killall", "-s", "SIGTERM", "fmt"])
     GPIO.cleanup()
+
 
 def check_c():
     global wav_file_list, count
     if count >= len(wav_file_list):
-            count = 0
+        count = 0
     if count < 0:
         count = len(wav_file_list) - 1
 
+
 atexit.register(bef_exit)
 
+
 class gpio_ctrl():
-    bcm_list = [16, 20, 21, 19]
+    bcm_list = [16, 20, 21, 19, 26, 13, 6,5,12]
+
     def init_gpio(self):
         GPIO.setmode(GPIO.BCM)
         for i in self.bcm_list:
-            GPIO.setup(i, GPIO.OUT) 
-    
+            GPIO.setup(i, GPIO.OUT)
+
     def get_gpio(self):
         bcm_sta = {}
         for i in self.bcm_list:
             bcm_sta[str(i)] = GPIO.input(i)
         return bcm_sta
-    
+
     def gpio_func(self):
         global count, subp, wav_file_list
         gs = self.get_gpio()
-        
-        if gs["21"] == 1:
-            count = 0
-        if gs["16"] == 1:
-            count -= 2
-        if gs["20"] == 1:
-            count = count
-        if gs["19"] == 1:
+        if gs["5"]==1:
+            wav_file_list = scan_files(f"{args.folder}/slow_wav", "wav")
+            wav_file_list = sorted(wav_file_list)
+            logging.info(wav_file_list)
+        if gs["6"] == 1:
             # 获取出现指定字符串的第一个元素的下标
-            keyword = "草东没有派对"
-            first_index = None
-            # 使用enumerate函数来遍历列表
+            keyword = "万能青年旅店"
+            first_index = 0
             for index, item in enumerate(wav_file_list):
                 if keyword in item:
                     first_index = index
                     break  # 找到后立即退出循循
             count = first_index
+        if gs["21"] == 1:
+            count = 0
+            logging.info("从头开始")
+        if gs["16"] == 1:
+            count -= 2
+            logging.info("上一首")
+        if gs["20"] == 1:
+            logging.info("下一首")
+        if gs["26"] == 1:
+            count = 11
+            logging.info("但 in Caodong")
+        if gs["13"] == 1:
+            wav_file_list = scan_files(folder_path, "wav")
+            wav_file_list = sorted(wav_file_list)
+            logging.info(wav_file_list)
+        if gs["19"] == 1:
+            # Hardcode
+            caodong = [
+                '草东没有派对 - 如常.wav',
+                '草东没有派对 - 苦难精算师.wav',
+                '草东没有派对 - 缸.wav',
+                '草东没有派对 - 空.wav',
+                '草东没有派对 - 人洞山.wav',
+                '草东没有派对 - 孑.wav',
+                '草东没有派对 - 白日梦.wav',
+                '草东没有派对 - 床.wav',
+                '草东没有派对 - 八.wav',
+                '草东没有派对 - 老张.wav',
+                '草东没有派对 - 芽.wav',
+                '草东没有派对 - 但.wav',
+                '草东没有派对 - Intro.wav',
+                '草东没有派对 - 丑.wav',
+                '草东没有派对 - 烂泥.wav',
+                '草东没有派对 - 勇敢的人.wav',
+                '草东没有派对 - 大风吹.wav',
+                '草东没有派对 - 埃玛.wav',
+                '草东没有派对 - 等.wav',
+                '草东没有派对 - 鬼.wav',
+                '草东没有派对 - 在.wav',
+                '草东没有派对 - 山海.wav',
+                '草东没有派对 - 我们.wav',
+                '草东没有派对 - 情歌.wav',
+            ]
+            wav_file_list = [os.path.join(folder_path, x) for x in caodong]
+            count = 0
+            logging.info(wav_file_list)
+            logging.info("草东模式")
 
         check_c()
-
+        gs["12"]=0
         if 1 in gs.values():
             subprocess.run(["sudo", "killall", "-s", "SIGTERM", "fmt"])
             logging.info("Terminated the subprocess")
             logging.info(f"{gs}, {count}, {1 in gs.values()}")
             time.sleep(2)
+
 
 wav_file_list = scan_files(folder_path, "wav")
 wav_file_list = sorted(wav_file_list)
@@ -124,12 +181,18 @@ if GPIO_CTR.get_gpio()["21"] == 1:
 with open(count_file, "w") as f:
     f.write(str(count))
 
+
 def play():
     global count, subp, wav_file_list
+    gp=gpio_ctrl()
+    gs = gp.get_gpio()
+    if gs["12"]==1:
+        count-=1
     logging.info(f"Now count: {count} File: {wav_file_list[count]}")
-
+    logging.info(["sudo", fm_tra, f"-f {freq}", wav_file_list[count]])
     # 使用f-string来格式化字符串
-    subp = subprocess.Popen(["sudo", fm_tra, f"-f {freq}", wav_file_list[count]])
+    subp = subprocess.Popen(
+        ["sudo", fm_tra, f"-f {freq}", wav_file_list[count]])
 
     # 假若到达数组长度则重置
     # 不重置将会超出数组长度引发报错
