@@ -19,6 +19,8 @@ parser.add_argument("-c", "--count", type=str,
                     default="count.dat", help="The count file path")
 parser.add_argument("-f", "--folder", type=str,
                     default=os.getcwd(), help="The work folder")
+parser.add_argument("-s", "--slow_music", type=str,
+                    default="slow_wav", help="The slow music work folder")
 parser.add_argument("-t", "--transmitter", type=str,
                     default="fmt", help="The fm transmitter path")
 parser.add_argument("-q", "--frequency", type=float,
@@ -29,12 +31,15 @@ args = parser.parse_args()
 folder_path = f"{args.folder}/{args.music}"
 count_file = f"{args.folder}/{args.count}"
 fm_tra = f"{args.folder}/{args.transmitter}"
+slow_folder = f"{args.folder}/slow_wav"
+caodong_list = f"{args.folder}/caodong.json"
 freq = args.frequency
 
-count = 0
-subp = None
+current_index = 0
 
 GPIO.cleanup()
+
+
 # 获取指定目录里的所有文件(包括子目录)
 
 
@@ -59,24 +64,30 @@ def scan_files(directory, extension=None):
     return file_list
 
 
+def check_c():
+    global wav_file_list, current_index
+    if current_index >= len(wav_file_list):
+        current_index = 0
+    if current_index < 0:
+        current_index = len(wav_file_list) - 1
+
+
 def bef_exit():
     subprocess.run(["sudo", "killall", "-s", "SIGTERM", "fmt"])
     GPIO.cleanup()
 
 
-def check_c():
-    global wav_file_list, count
-    if count >= len(wav_file_list):
-        count = 0
-    if count < 0:
-        count = len(wav_file_list) - 1
-
-
 atexit.register(bef_exit)
 
 
-class gpio_ctrl():
-    bcm_list = [16, 20, 21, 19, 26, 13, 6,5,12]
+def break_play():
+    subprocess.run(["sudo", "killall", "-s", "SIGTERM", "fmt"])
+    logging.info("Terminated the subprocess")
+    time.sleep(2)
+
+
+class gpio_ctrl:
+    bcm_list = [16, 20, 21, 19, 26, 13, 6, 5, 12]
 
     def init_gpio(self):
         GPIO.setmode(GPIO.BCM)
@@ -90,31 +101,31 @@ class gpio_ctrl():
         return bcm_sta
 
     def gpio_func(self):
-        global count, subp, wav_file_list
+        global current_index, wav_file_list
         gs = self.get_gpio()
-        if gs["5"]==1:
-            wav_file_list = scan_files(f"{args.folder}/slow_wav", "wav")
-            wav_file_list = sorted(wav_file_list)
+        if gs["5"] == 1:
+            wav_file_list = scan_files(slow_folder, "wav")
+            wav_file_list = sorted(wav_file_list, key=lambda x: x.lower())
             logging.info(wav_file_list)
         if gs["6"] == 1:
             # 获取出现指定字符串的第一个元素的下标
             keyword = "万能青年旅店"
-            first_index = 0
+            keyword_index = 0
             for index, item in enumerate(wav_file_list):
                 if keyword in item:
-                    first_index = index
+                    keyword_index = index
                     break  # 找到后立即退出循循
-            count = first_index
+            current_index = keyword_index
         if gs["21"] == 1:
-            count = 0
-            logging.info("从头开始")
+            current_index = 0
+            logging.info("播放第一首")
         if gs["16"] == 1:
-            count -= 2
-            logging.info("上一首")
+            current_index -= 2
+            logging.info("播放上一首")
         if gs["20"] == 1:
-            logging.info("下一首")
+            logging.info("播放下一首")
         if gs["26"] == 1:
-            count = 11
+            current_index = 11
             logging.info("但 in Caodong")
         if gs["13"] == 1:
             wav_file_list = scan_files(folder_path, "wav")
@@ -127,62 +138,44 @@ class gpio_ctrl():
                 data = json.load(caodong_f)
                 caodong = data["songs"]
             wav_file_list = [os.path.join(folder_path, x) for x in caodong]
-            count = 0
+            current_index = 0
             logging.info(wav_file_list)
             logging.info("草东模式")
 
         check_c()
-        gs["12"]=0
+        gs["12"] = 0
         if 1 in gs.values():
-            subprocess.run(["sudo", "killall", "-s", "SIGTERM", "fmt"])
-            logging.info("Terminated the subprocess")
-            logging.info(f"{gs}, {count}, {1 in gs.values()}")
-            time.sleep(2)
+            logging.info(f"{gs}, {current_index}, {1 in gs.values()}")
+            break_play()
 
 
 wav_file_list = scan_files(folder_path, "wav")
 wav_file_list = sorted(wav_file_list)
 logging.info(wav_file_list)
 
-# 使用with语句来管理文件的打开和关闭
-if os.path.exists(count_file):
-    with open(count_file, "r") as f:
-        count = int(f.read())
-# 读取数据后判断是否在范围内
-check_c()
-GPIO_CTR = gpio_ctrl()
-# INIT GPIO
-GPIO_CTR.init_gpio()
-if GPIO_CTR.get_gpio()["21"] == 1:
-    count = 0
-
-with open(count_file, "w") as f:
-    f.write(str(count))
-
 
 def play():
-    global count, subp, wav_file_list
-    gp=gpio_ctrl()
-    gs = gp.get_gpio()
-    if gs["12"]==1:
-        count-=1
-    logging.info(f"Now count: {count} File: {wav_file_list[count]}")
-    logging.info(["sudo", fm_tra, f"-f {freq}", wav_file_list[count]])
+    global current_index
+    gs = GPIO_CTR.get_gpio()
+    if gs["12"] == 1:
+        current_index -= 1
+    logging.info(f"Now count: {current_index} File: {wav_file_list[current_index]}")
+    logging.info(["sudo", fm_tra, f"-f {freq}", wav_file_list[current_index]])
     # 使用f-string来格式化字符串
-    subp = subprocess.Popen(
-        ["sudo", fm_tra, f"-f {freq}", wav_file_list[count]])
+    sub_play_process = subprocess.Popen(
+        ["sudo", fm_tra, f"-f {freq}", wav_file_list[current_index]])
 
     # 假若到达数组长度则重置
     # 不重置将会超出数组长度引发报错
-    count += 1
+    current_index += 1
     check_c()
 
-    with open(count_file, "w") as f:
-        f.write(str(count))
+    with open(count_file, "w") as count_f:
+        count_f.write(str(current_index))
 
     while True:
-        subp_p = subp.poll()
-        if subp_p != None:
+        subp_p = sub_play_process.poll()
+        if subp_p is not None:
             break
         time.sleep(0.5)
         GPIO_CTR.gpio_func()
@@ -192,6 +185,19 @@ def play():
 if __name__ == "__main__":
     # 使用try-except语句来处理可能出现的异常
     try:
+        if os.path.exists(count_file):
+            with open(count_file, "r") as f:
+                current_index = int(f.read())
+        # 读取数据后判断是否在范围内
+        check_c()
+        GPIO_CTR = gpio_ctrl()
+        # INIT GPIO
+        GPIO_CTR.init_gpio()
+        if GPIO_CTR.get_gpio()["21"] == 1:
+            current_index = 0
+
+        with open(count_file, "w") as f:
+            f.write(str(current_index))
         while True:
             play()
     except Exception as e:
